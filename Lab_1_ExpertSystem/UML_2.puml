@@ -1,0 +1,219 @@
+@startuml
+skinparam classAttributeIconSize 0
+
+' =========================
+' ПАКЕТ GUI
+' =========================
+class HydroponicGUI {
+    - master: tk.Tk
+    - kb: KnowledgeBase
+    - engine: InferenceEngine
+    - param_vars: dict[GrowthStage, dict[str, tk.DoubleVar]]
+    - crop_var: tk.StringVar
+    - result_text: tk.Text
+    --
+    + __init__(master: tk.Tk)
+    - _create_param_vars() : dict[str, tk.DoubleVar]
+    - _create_widgets() : void
+    - _analyze() : void
+    - _display_results(results: dict[GrowthStage, AnalysisResult]) : void
+}
+
+' =========================
+' ПАКЕТ "Интеллект"
+' =========================
+class InferenceEngine {
+    - PARAMETER_WEIGHTS: dict[str, float]
+    --
+    + __init__()
+    + analyze(current_params: EnvironmentParameters, requirements: CropRequirements, stage: GrowthStage) : AnalysisResult
+    --
+    - _calculate_parameter_scores(current: EnvironmentParameters, stage_reqs: StageRequirements) : dict[str, float]
+    - _deviation_to_score(deviation: float) : float
+    - _calculate_survival_probability(parameter_scores: dict[str, float]) : float
+    - _calculate_yield_forecast(parameter_scores: dict[str, float], survival_probability: float) : float
+    - _calculate_health_score(parameter_scores: dict[str, float]) : float
+    - _identify_issues(current: EnvironmentParameters, stage_reqs: StageRequirements, scores: dict[str, float]) : (list[str], list[str])
+    - _check_parameter(name: str, value: float, optimal_range: OptimalRange, score: float, unit: str,
+                       critical_issues: list[str], warnings: list[str]) : void
+    - _generate_recommendations(current: EnvironmentParameters, stage_reqs: StageRequirements,
+                                scores: dict[str, float],
+                                critical_issues: list[str], warnings: list[str]) : list[str]
+    - _get_parameter_recommendation(param_name: str, current: EnvironmentParameters,
+                                    stage_reqs: StageRequirements, score: float) : str
+    - _get_correction_methods(param_name: str, is_low: bool) : str
+    - _calculate_optimal_parameters(stage_reqs: StageRequirements) : EnvironmentParameters
+    - _sigmoid(x: float, midpoint: float=0.5, steepness: float=10) : float
+    - _sigmoid01(x: float, midpoint: float=0.5, steepness: float=10) : float
+}
+
+class KnowledgeBase {
+    - _requirements: dict[CropType, CropRequirements]
+    --
+    + __init__()
+    + get_requirements(crop_type: CropType) : CropRequirements
+    + get_all_crops() : list[CropType]
+    + get_crop_info(crop_type: CropType) : str
+    - _build_knowledge_base() : dict[CropType, CropRequirements]
+}
+
+' =========================
+' ПАКЕТ "Модели/DTO"
+' =========================
+
+enum CropType {
+    TOMATO = "томат"
+    CUCUMBER = "огурец"
+    LETTUCE = "салат"
+    STRAWBERRY = "клубника"
+    PEPPER = "перец"
+    BASIL = "базилик"
+}
+
+enum GrowthStage {
+    SEEDLING = "рассада"
+    VEGETATIVE = "вегетация"
+    FRUITING = "плодоношение"
+}
+
+class EnvironmentParameters {
+    + air: AirParameters
+    + light: LightParameters
+    + solution: SolutionParameters
+    --
+    + __init__(air: AirParameters, light: LightParameters, solution: SolutionParameters)
+    + __post_init__() : void
+}
+
+class AirParameters {
+    + temperature: float
+    + humidity: float
+    + atmospheric_pressure: float
+    --
+    + __post_init__() : void
+    - _validate() : void
+}
+
+class LightParameters {
+    + wavelength: float
+    + energy: float
+    + hours: float
+    --
+    + __post_init__() : void
+    - _validate() : void
+}
+
+class SolutionParameters {
+    + nitrogen: float
+    + phosphorus: float
+    + potassium: float
+    + calcium: float
+    + magnesium: float
+    + iron: float
+    --
+    + __post_init__() : void
+    - _validate() : void
+}
+
+class OptimalRange {
+    + min_optimal: float
+    + max_optimal: float
+    + min_acceptable: float
+    + max_acceptable: float
+    + critical_min: float
+    + critical_max: float
+    --
+    + get_deviation(value: float) : float
+    + get_target_value() : float
+    + get_adjustment_direction(value: float) : str
+    + get_adjustment_delta(value: float) : float
+}
+
+class AirRanges {
+    + temperature: OptimalRange
+    + humidity: OptimalRange
+    + atmospheric_pressure: OptimalRange
+}
+
+class LightRanges {
+    + wavelength: OptimalRange
+    + energy: OptimalRange
+    + hours: OptimalRange
+}
+
+class SolutionRanges {
+    + nitrogen: OptimalRange
+    + phosphorus: OptimalRange
+    + potassium: OptimalRange
+    + calcium: OptimalRange
+    + magnesium: OptimalRange
+    + iron: OptimalRange
+}
+
+class StageRequirements {
+    + air: AirRanges
+    + light: LightRanges
+    + solution: SolutionRanges
+    + max_yield_kg_per_m2: float
+}
+
+class CropRequirements {
+    + crop_type: CropType
+    + stages: dict[GrowthStage, StageRequirements]
+}
+
+class AnalysisResult {
+    + stage: GrowthStage
+    + survival_probability: float
+    + yield_forecast: float
+    + max_yield_kg_per_m2: float
+    + health_score: float
+    + critical_issues: list[str]
+    + warnings: list[str]
+    + recommendations: list[str]
+    + optimal_parameters: EnvironmentParameters
+    + parameter_scores: dict[str, float]
+    --
+    + get_status_text() : str
+    + has_critical_issues() : bool
+    + get_worst_parameter() : (str, float)
+    + get_best_parameter() : (str, float)
+    + get_survival_percentage() : int
+    + get_yield_percentage() : int
+}
+
+' =========================
+' СВЯЗИ
+' =========================
+
+' GUI зависит от БЗ и движка
+HydroponicGUI --> KnowledgeBase : использует
+HydroponicGUI --> InferenceEngine : вызывает analyze()
+HydroponicGUI --> AnalysisResult : выводит
+
+' Движок использует модели
+InferenceEngine --> EnvironmentParameters
+InferenceEngine --> CropRequirements
+InferenceEngine --> StageRequirements
+InferenceEngine --> AnalysisResult
+InferenceEngine --> OptimalRange
+
+' База знаний порождает требования
+KnowledgeBase --> CropRequirements
+CropRequirements "1" o--> "many" StageRequirements
+StageRequirements --> AirRanges
+StageRequirements --> LightRanges
+StageRequirements --> SolutionRanges
+
+AirRanges --> OptimalRange
+LightRanges --> OptimalRange
+SolutionRanges --> OptimalRange
+
+EnvironmentParameters --> AirParameters
+EnvironmentParameters --> LightParameters
+EnvironmentParameters --> SolutionParameters
+
+AnalysisResult --> EnvironmentParameters
+AnalysisResult --> GrowthStage
+
+@enduml

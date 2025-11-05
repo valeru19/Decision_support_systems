@@ -1,0 +1,170 @@
+@startuml
+' UML диаграмма классов для проекта Lab_1_ExpertSystem
+' Файл можно визуализировать с помощью любого рендера PlantUML
+
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam roundcorner 5
+skinparam packageStyle rectangle
+skinparam ArrowColor #2e86c1
+skinparam ClassBorderColor #2e86c1
+skinparam ClassBackgroundColor #f8fbff
+
+' Перечисления (Enums)
+enum CropType {
+  TOMATO
+  CUCUMBER
+  LETTUCE
+  STRAWBERRY
+  PEPPER
+  BASIL
+}
+
+enum GrowthStage {
+  SEEDLING
+  VEGETATIVE
+  FRUITING
+}
+
+' Базовые структуры параметров среды
+class AirParameters {
+  +temperature: float  ' °C
+  +humidity: float     ' %
+  +atmospheric_pressure: float  ' мм рт. ст.
+}
+
+class LightParameters {
+  +wavelength: float  ' нм
+  +energy: float      ' Вт/м²
+  +hours: float       ' ч
+}
+
+class SolutionParameters {
+  +nitrogen: float    ' мг/л
+  +phosphorus: float  ' мг/л
+  +potassium: float   ' мг/л
+  +calcium: float     ' мг/л
+  +magnesium: float   ' мг/л
+  +iron: float        ' мг/л
+}
+
+class EnvironmentParameters {
+  +air: AirParameters
+  +light: LightParameters
+  +solution: SolutionParameters
+}
+
+' Диапазоны и оптимумы
+class OptimalRange {
+  +min_optimal: float
+  +max_optimal: float
+  +min_acceptable: float
+  +max_acceptable: float
+  +critical_min: float
+  +critical_max: float
+  +get_deviation(value: float): float
+  +get_target_value(): float
+  +get_adjustment_direction(value: float): str
+  +get_adjustment_delta(value: float): float
+}
+
+class AirRanges {
+  +temperature: OptimalRange
+  +humidity: OptimalRange
+  +atmospheric_pressure: OptimalRange
+}
+
+class LightRanges {
+  +wavelength: OptimalRange
+  +energy: OptimalRange
+  +hours: OptimalRange
+}
+
+class SolutionRanges {
+  +nitrogen: OptimalRange
+  +phosphorus: OptimalRange
+  +potassium: OptimalRange
+  +calcium: OptimalRange
+  +magnesium: OptimalRange
+  +iron: OptimalRange
+}
+
+class StageRequirements {
+  +air: AirRanges
+  +light: LightRanges
+  +solution: SolutionRanges
+  +max_yield_kg_per_m2: float
+}
+
+class CropRequirements {
+  +crop_type: CropType
+  +stages: Dict<GrowthStage, StageRequirements>
+}
+
+' Результат анализа
+class AnalysisResult {
+  +stage: GrowthStage
+  +survival_probability: float
+  +yield_forecast: float
+  +max_yield_kg_per_m2: float
+  +health_score: float
+  +critical_issues: list<str>
+  +warnings: list<str>
+  +recommendations: list<str>
+  +optimal_parameters: EnvironmentParameters
+  +parameter_scores: dict<str, float>
+  +get_status_text(): str
+  +has_critical_issues(): bool
+  +get_worst_parameter(): tuple<str, float>
+  +get_best_parameter(): tuple<str, float>
+  +get_survival_percentage(): int
+  +get_yield_percentage(): int
+}
+
+' Сервисные классы (логика и знания)
+class InferenceEngine {
+  +analyze(current: EnvironmentParameters, reqs: CropRequirements, stage: GrowthStage): AnalysisResult
+}
+
+class KnowledgeBase {
+  +get_requirements(crop: CropType): CropRequirements
+  +get_crop_info(crop: CropType): str
+}
+
+' Отношения и композиции
+EnvironmentParameters *-- AirParameters
+EnvironmentParameters *-- LightParameters
+EnvironmentParameters *-- SolutionParameters
+
+StageRequirements *-- AirRanges
+StageRequirements *-- LightRanges
+StageRequirements *-- SolutionRanges
+
+AirRanges *-- OptimalRange : temperature
+AirRanges *-- OptimalRange : humidity
+AirRanges *-- OptimalRange : atmospheric_pressure
+
+LightRanges *-- OptimalRange : wavelength
+LightRanges *-- OptimalRange : energy
+LightRanges *-- OptimalRange : hours
+
+SolutionRanges *-- OptimalRange : nitrogen
+SolutionRanges *-- OptimalRange : phosphorus
+SolutionRanges *-- OptimalRange : potassium
+SolutionRanges *-- OptimalRange : calcium
+SolutionRanges *-- OptimalRange : magnesium
+SolutionRanges *-- OptimalRange : iron
+
+CropRequirements o-- "stages\n(GrowthStage→StageRequirements)" StageRequirements
+CropRequirements --> CropType
+
+AnalysisResult --> EnvironmentParameters : optimal_parameters
+InferenceEngine ..> EnvironmentParameters : uses
+InferenceEngine ..> CropRequirements : uses
+InferenceEngine ..> GrowthStage : uses
+InferenceEngine ..> AnalysisResult : creates
+
+KnowledgeBase ..> CropRequirements : returns
+KnowledgeBase ..> CropType : parameter
+
+@enduml

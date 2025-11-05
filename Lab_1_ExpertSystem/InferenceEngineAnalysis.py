@@ -19,7 +19,12 @@ from typing import Dict, List, Tuple
 
 from HydroponicExpertSystemModels import (
     EnvironmentParameters,
+    AirParameters,
+    LightParameters,
+    SolutionParameters,
     CropRequirements,
+    StageRequirements,
+    GrowthStage,
     AnalysisResult,
     OptimalRange
 )
@@ -36,12 +41,21 @@ class InferenceEngine:
     # Веса важности параметров для расчетов (сумма = 1.0)
     # Разные параметры по-разному влияют на выживаемость и урожай
     PARAMETER_WEIGHTS = {
-        'temperature': 0.20,      # Температура критично важна
-        'humidity': 0.10,         # Влажность важна, но не критична
-        'ph': 0.25,               # pH критичен (блокирует усвоение питания)
-        'ec': 0.20,               # EC критичен (концентрация удобрений)
-        'light_intensity': 0.15,  # Свет важен для фотосинтеза
-        'light_hours': 0.10       # Продолжительность освещения
+        # Воздух
+        'temperature': 0.12,           # Температура критично важна
+        'humidity': 0.08,              # Влажность влияет на транспирацию
+        'atmospheric_pressure': 0.05,  # Влияет на газообмен
+        # Свет
+        'wavelength': 0.08,            # Соответствие спектра задаче стадии
+        'energy': 0.10,                # Интенсивность света
+        'hours': 0.07,                 # Длительность светового дня
+        # Раствор (питание)
+        'nitrogen': 0.12,              # Рост зелёной массы
+        'phosphorus': 0.08,            # Корневая система и цветение
+        'potassium': 0.12,             # Качество плодов и стрессоустойчивость
+        'calcium': 0.08,               # Клеточные стенки, верш. гниль
+        'magnesium': 0.05,             # Хлорофилл
+        'iron': 0.05                   # Микроэлемент для фотосинтеза
     }
     
     def __init__(self):
@@ -51,7 +65,8 @@ class InferenceEngine:
     def analyze(
         self,
         current_params: EnvironmentParameters,
-        requirements: CropRequirements
+        requirements: CropRequirements,
+        stage: GrowthStage
     ) -> AnalysisResult:
         """
         Провести полный анализ текущих условий выращивания
@@ -59,12 +74,16 @@ class InferenceEngine:
         Args:
             current_params: Текущие параметры среды
             requirements: Требования культуры к условиям
+            stage: Стадия роста, для которой проводится анализ
             
         Returns:
             AnalysisResult: Полный результат анализа с оценками и рекомендациями
         """
+        # Получаем требования для конкретной стадии
+        stage_reqs: StageRequirements = requirements.stages[stage]
+        
         # Шаг 1: Рассчитываем оценки для каждого параметра (0-1)
-        parameter_scores = self._calculate_parameter_scores(current_params, requirements)
+        parameter_scores = self._calculate_parameter_scores(current_params, stage_reqs)
         
         # Шаг 2: Рассчитываем вероятность выживания
         # Критичные отклонения приводят к низкой выживаемости
@@ -74,26 +93,27 @@ class InferenceEngine:
         # Учитывается нелинейная зависимость от всех параметров
         yield_forecast = self._calculate_yield_forecast(parameter_scores, survival_probability)
 
-        # 3.2
-        max_yield_kg_per_m2 = yield_forecast * requirements.max_yield_kg_per_m2
+        # 3.2 Максимальный урожай для данной стадии
+        max_yield_kg_per_m2 = yield_forecast * stage_reqs.max_yield_kg_per_m2
         
         # Шаг 4: Рассчитываем общую оценку здоровья (0-100)
         health_score = self._calculate_health_score(parameter_scores)
         
         # Шаг 5: Определяем проблемы и предупреждения
         critical_issues, warnings = self._identify_issues(
-            current_params, requirements, parameter_scores
+            current_params, stage_reqs, parameter_scores
         )
         
         # Шаг 6: Генерируем конкретные рекомендации
         recommendations = self._generate_recommendations(
-            current_params, requirements, parameter_scores, critical_issues, warnings
+            current_params, stage_reqs, parameter_scores, critical_issues, warnings
         )
         
         # Шаг 7: Вычисляем оптимальные параметры (центр оптимального диапазона)
-        optimal_parameters = self._calculate_optimal_parameters(requirements)
+        optimal_parameters = self._calculate_optimal_parameters(stage_reqs)
         
         return AnalysisResult(
+            stage=stage,
             survival_probability=survival_probability,
             yield_forecast=yield_forecast,
             max_yield_kg_per_m2=max_yield_kg_per_m2,
@@ -108,7 +128,7 @@ class InferenceEngine:
     def _calculate_parameter_scores(
         self,
         current: EnvironmentParameters,
-        requirements: CropRequirements
+        stage_reqs: StageRequirements
     ) -> Dict[str, float]:
         """
         Рассчитать оценку качества для каждого параметра
@@ -120,36 +140,51 @@ class InferenceEngine:
         
         Args:
             current: Текущие параметры среды
-            requirements: Требования культуры
+            stage_reqs: Требования культуры для текущей стадии
             
         Returns:
             Dict[str, float]: Словарь с оценками для каждого параметра
         """
         scores = {}
         
-        # Температура
-        deviation = requirements.temperature.get_deviation(current.temperature)
+        # Воздух
+        deviation = stage_reqs.air.temperature.get_deviation(current.air.temperature)
         scores['temperature'] = self._deviation_to_score(deviation)
         
-        # Влажность
-        deviation = requirements.humidity.get_deviation(current.humidity)
+        deviation = stage_reqs.air.humidity.get_deviation(current.air.humidity)
         scores['humidity'] = self._deviation_to_score(deviation)
         
-        # pH
-        deviation = requirements.ph.get_deviation(current.ph)
-        scores['ph'] = self._deviation_to_score(deviation)
+        deviation = stage_reqs.air.atmospheric_pressure.get_deviation(current.air.atmospheric_pressure)
+        scores['atmospheric_pressure'] = self._deviation_to_score(deviation)
         
-        # EC (электропроводность)
-        deviation = requirements.ec.get_deviation(current.ec)
-        scores['ec'] = self._deviation_to_score(deviation)
+        # Свет
+        deviation = stage_reqs.light.wavelength.get_deviation(current.light.wavelength)
+        scores['wavelength'] = self._deviation_to_score(deviation)
         
-        # Освещенность
-        deviation = requirements.light_intensity.get_deviation(current.light_intensity)
-        scores['light_intensity'] = self._deviation_to_score(deviation)
+        deviation = stage_reqs.light.energy.get_deviation(current.light.energy)
+        scores['energy'] = self._deviation_to_score(deviation)
         
-        # Световой день
-        deviation = requirements.light_hours.get_deviation(current.light_hours)
-        scores['light_hours'] = self._deviation_to_score(deviation)
+        deviation = stage_reqs.light.hours.get_deviation(current.light.hours)
+        scores['hours'] = self._deviation_to_score(deviation)
+        
+        # Раствор
+        deviation = stage_reqs.solution.nitrogen.get_deviation(current.solution.nitrogen)
+        scores['nitrogen'] = self._deviation_to_score(deviation)
+        
+        deviation = stage_reqs.solution.phosphorus.get_deviation(current.solution.phosphorus)
+        scores['phosphorus'] = self._deviation_to_score(deviation)
+        
+        deviation = stage_reqs.solution.potassium.get_deviation(current.solution.potassium)
+        scores['potassium'] = self._deviation_to_score(deviation)
+        
+        deviation = stage_reqs.solution.calcium.get_deviation(current.solution.calcium)
+        scores['calcium'] = self._deviation_to_score(deviation)
+        
+        deviation = stage_reqs.solution.magnesium.get_deviation(current.solution.magnesium)
+        scores['magnesium'] = self._deviation_to_score(deviation)
+        
+        deviation = stage_reqs.solution.iron.get_deviation(current.solution.iron)
+        scores['iron'] = self._deviation_to_score(deviation)
         
         return scores
     
@@ -212,7 +247,11 @@ class InferenceEngine:
         
         # Применяем сигмоидное сглаживание для реалистичности
         # Растения достаточно устойчивы, не умирают мгновенно
-        survival = self._sigmoid(base_probability, midpoint=0.5, steepness=5)
+        # Если все параметры идеальны, вероятность выживания должна быть 1.0
+        if all(abs(score - 1.0) < 1e-9 for score in parameter_scores.values()):
+            return 1.0
+
+        survival = self._sigmoid01(base_probability, midpoint=0.5, steepness=5)
         
         return max(0.0, min(1.0, survival))
     
@@ -262,16 +301,16 @@ class InferenceEngine:
         base_yield = combined_score ** 1.5  # Степень > 1 создает нелинейность
         
         # Корректируем на выживаемость
-        final_yield = base_yield * self._sigmoid(survival_probability, 0.6, 8)
+        final_yield = base_yield * self._sigmoid01(survival_probability, 0.6, 8)
         
         # Дополнительные штрафы за критичные параметры
-        # pH и EC особенно важны для урожайности
-        if parameter_scores['ph'] < 0.5:
-            final_yield *= 0.7  # Штраф -30% за плохой pH
-        if parameter_scores['ec'] < 0.5:
-            final_yield *= 0.7  # Штраф -30% за плохой EC
-        if parameter_scores['light_intensity'] < 0.5:
-            final_yield *= 0.8  # Штраф -20% за недостаток света
+        # Ключевые факторы: питание (N, K), освещение (энергия)
+        if parameter_scores.get('nitrogen', 1.0) < 0.5:
+            final_yield *= 0.75  # Штраф -25% за дефицит азота
+        if parameter_scores.get('potassium', 1.0) < 0.5:
+            final_yield *= 0.80  # Штраф -20% за дефицит калия
+        if parameter_scores.get('energy', 1.0) < 0.5:
+            final_yield *= 0.80  # Штраф -20% за недостаток энергии света
 
         return max(0.0, min(1.0, final_yield))
 
@@ -301,7 +340,7 @@ class InferenceEngine:
     def _identify_issues(
         self,
         current: EnvironmentParameters,
-        requirements: CropRequirements,
+        stage_reqs: StageRequirements,
         scores: Dict[str, float]
     ) -> Tuple[List[str], List[str]]:
         """
@@ -312,7 +351,7 @@ class InferenceEngine:
         
         Args:
             current: Текущие параметры
-            requirements: Требования культуры
+            stage_reqs: Требования культуры
             scores: Оценки параметров
             
         Returns:
@@ -321,21 +360,21 @@ class InferenceEngine:
         critical_issues = []
         warnings = []
         
-        # Проверяем каждый параметр
+        # Воздух
         self._check_parameter(
             'Температура',
-            current.temperature,
-            requirements.temperature,
+            current.air.temperature,
+            stage_reqs.air.temperature,
             scores['temperature'],
-            'C',
+            '°C',
             critical_issues,
             warnings
         )
         
         self._check_parameter(
             'Влажность',
-            current.humidity,
-            requirements.humidity,
+            current.air.humidity,
+            stage_reqs.air.humidity,
             scores['humidity'],
             '%',
             critical_issues,
@@ -343,41 +382,103 @@ class InferenceEngine:
         )
         
         self._check_parameter(
-            'pH',
-            current.ph,
-            requirements.ph,
-            scores['ph'],
-            '',
+            'Давление',
+            current.air.atmospheric_pressure,
+            stage_reqs.air.atmospheric_pressure,
+            scores['atmospheric_pressure'],
+            ' мм рт. ст.',
+            critical_issues,
+            warnings
+        )
+        
+        # Свет
+        self._check_parameter(
+            'Длина волны',
+            current.light.wavelength,
+            stage_reqs.light.wavelength,
+            scores['wavelength'],
+            ' нм',
             critical_issues,
             warnings
         )
         
         self._check_parameter(
-            'EC',
-            current.ec,
-            requirements.ec,
-            scores['ec'],
-            'mS/cm',
-            critical_issues,
-            warnings
-        )
-        
-        self._check_parameter(
-            'Освещенность',
-            current.light_intensity,
-            requirements.light_intensity,
-            scores['light_intensity'],
-            'µmol/m²/s',
+            'Энергия света',
+            current.light.energy,
+            stage_reqs.light.energy,
+            scores['energy'],
+            ' Вт/м²',
             critical_issues,
             warnings
         )
         
         self._check_parameter(
             'Световой день',
-            current.light_hours,
-            requirements.light_hours,
-            scores['light_hours'],
-            'ч',
+            current.light.hours,
+            stage_reqs.light.hours,
+            scores['hours'],
+            ' ч',
+            critical_issues,
+            warnings
+        )
+        
+        # Раствор
+        self._check_parameter(
+            'Азот (N)',
+            current.solution.nitrogen,
+            stage_reqs.solution.nitrogen,
+            scores['nitrogen'],
+            ' мг/л',
+            critical_issues,
+            warnings
+        )
+        
+        self._check_parameter(
+            'Фосфор (P)',
+            current.solution.phosphorus,
+            stage_reqs.solution.phosphorus,
+            scores['phosphorus'],
+            ' мг/л',
+            critical_issues,
+            warnings
+        )
+        
+        self._check_parameter(
+            'Калий (K)',
+            current.solution.potassium,
+            stage_reqs.solution.potassium,
+            scores['potassium'],
+            ' мг/л',
+            critical_issues,
+            warnings
+        )
+        
+        self._check_parameter(
+            'Кальций (Ca)',
+            current.solution.calcium,
+            stage_reqs.solution.calcium,
+            scores['calcium'],
+            ' мг/л',
+            critical_issues,
+            warnings
+        )
+        
+        self._check_parameter(
+            'Магний (Mg)',
+            current.solution.magnesium,
+            stage_reqs.solution.magnesium,
+            scores['magnesium'],
+            ' мг/л',
+            critical_issues,
+            warnings
+        )
+        
+        self._check_parameter(
+            'Железо (Fe)',
+            current.solution.iron,
+            stage_reqs.solution.iron,
+            scores['iron'],
+            ' мг/л',
             critical_issues,
             warnings
         )
@@ -463,7 +564,7 @@ class InferenceEngine:
     def _generate_recommendations(
         self,
         current: EnvironmentParameters,
-        requirements: CropRequirements,
+        stage_reqs: StageRequirements,
         scores: Dict[str, float],
         critical_issues: List[str],
         warnings: List[str]
@@ -503,7 +604,7 @@ class InferenceEngine:
         for param_name, score in sorted_params:
             if score < 0.8:  # Есть проблема
                 rec = self._get_parameter_recommendation(
-                    param_name, current, requirements, score
+                    param_name, current, stage_reqs, score
                 )
                 if rec:
                     recommendations.append(rec)
@@ -521,7 +622,7 @@ class InferenceEngine:
         self,
         param_name: str,
         current: EnvironmentParameters,
-        requirements: CropRequirements,
+        stage_reqs: StageRequirements,
         score: float
     ) -> str:
         """
@@ -538,12 +639,21 @@ class InferenceEngine:
         """
         # Словарь: параметр -> (значение, диапазон, единица, отображаемое имя)
         param_map = {
-            'temperature': (current.temperature, requirements.temperature, 'C', 'температуру'),
-            'humidity': (current.humidity, requirements.humidity, '%', 'влажность'),
-            'ph': (current.ph, requirements.ph, '', 'pH'),
-            'ec': (current.ec, requirements.ec, 'mS/cm', 'EC'),
-            'light_intensity': (current.light_intensity, requirements.light_intensity, 'µmol/m²/s', 'освещенность'),
-            'light_hours': (current.light_hours, requirements.light_hours, 'ч', 'световой день')
+            # Воздух
+            'temperature': (current.air.temperature, stage_reqs.air.temperature, '°C', 'температуру'),
+            'humidity': (current.air.humidity, stage_reqs.air.humidity, '%', 'влажность'),
+            'atmospheric_pressure': (current.air.atmospheric_pressure, stage_reqs.air.atmospheric_pressure, ' мм рт. ст.', 'давление'),
+            # Свет
+            'wavelength': (current.light.wavelength, stage_reqs.light.wavelength, ' нм', 'длину волны'),
+            'energy': (current.light.energy, stage_reqs.light.energy, ' Вт/м²', 'энергию света'),
+            'hours': (current.light.hours, stage_reqs.light.hours, ' ч', 'световой день'),
+            # Раствор
+            'nitrogen': (current.solution.nitrogen, stage_reqs.solution.nitrogen, ' мг/л', 'азот (N)'),
+            'phosphorus': (current.solution.phosphorus, stage_reqs.solution.phosphorus, ' мг/л', 'фосфор (P)'),
+            'potassium': (current.solution.potassium, stage_reqs.solution.potassium, ' мг/л', 'калий (K)'),
+            'calcium': (current.solution.calcium, stage_reqs.solution.calcium, ' мг/л', 'кальций (Ca)'),
+            'magnesium': (current.solution.magnesium, stage_reqs.solution.magnesium, ' мг/л', 'магний (Mg)'),
+            'iron': (current.solution.iron, stage_reqs.solution.iron, ' мг/л', 'железо (Fe)')
         }
         
         if param_name not in param_map:
@@ -563,17 +673,17 @@ class InferenceEngine:
             diff = value - target
         else:
             return ""  # В оптимальном диапазоне
-        
+
         # Уровень срочности
         urgency = "СРОЧНО:" if score < 0.5 else "Рекомендуется:"
-        
+
         # Формируем рекомендацию
         recommendation = (
             f"{urgency} {action} {display_name} до "
             f"{optimal.min_optimal}-{optimal.max_optimal}{unit} "
             f"(текущее: {value}{unit}, оптимум: {target:.1f}{unit}). "
         )
-        
+
         # Добавляем методы коррекции
         methods = self._get_correction_methods(param_name, value < optimal.min_optimal)
         if methods:
@@ -593,6 +703,7 @@ class InferenceEngine:
             str: Описание методов коррекции
         """
         methods = {
+            # Воздух
             'temperature': {
                 True: "включите обогрев, закройте вентиляцию, используйте тепловые маты",
                 False: "включите вентиляцию/кондиционер, притените, увеличьте испарение"
@@ -601,21 +712,47 @@ class InferenceEngine:
                 True: "используйте увлажнитель воздуха, распыляйте воду, уменьшите вентиляцию",
                 False: "включите вентиляцию, используйте осушитель, увеличьте циркуляцию воздуха"
             },
-            'ph': {
-                True: "добавьте pH-Up (гидроксид калия), используйте буферные растворы",
-                False: "добавьте pH-Down (фосфорная кислота), проверьте качество воды"
+            'atmospheric_pressure': {
+                True: "проверьте герметичность помещения, уменьшите интенсивность вытяжки; параметр в основном справочный",
+                False: "проветрите помещение, нормализуйте вентиляцию; параметр в основном справочный"
             },
-            'ec': {
-                True: "добавьте комплексное удобрение (NPK), увеличьте концентрацию раствора",
-                False: "разбавьте раствор чистой водой, замените раствор полностью"
+            # Свет
+            'wavelength': {
+                True: "используйте светильники с более короткой длиной волны (синяя область), отрегулируйте спектр LED",
+                False: "используйте светильники с большей долей красного спектра, настройте спектр LED"
             },
-            'light_intensity': {
-                True: "установите дополнительные LED-лампы, приблизьте светильники к растениям",
-                False: "поднимите светильники выше, уменьшите мощность ламп, используйте притенение"
+            'energy': {
+                True: "установите дополнительные LED-лампы/увеличьте мощность, уменьшите расстояние до растений",
+                False: "уменьшите мощность/увеличьте расстояние, примените притенение"
             },
-            'light_hours': {
-                True: "увеличьте продолжительность освещения (используйте таймер)",
-                False: "сократите световой день (установите таймер на меньший период)"
+            'hours': {
+                True: "увеличьте продолжительность освещения с помощью таймера",
+                False: "сократите продолжительность освещения (настройте таймер)"
+            },
+            # Раствор (питательные элементы)
+            'nitrogen': {
+                True: "добавьте азотсодержащее удобрение (N), увеличьте долю N в растворе",
+                False: "разбавьте раствор чистой водой или уменьшите дозу удобрения с азотом"
+            },
+            'phosphorus': {
+                True: "добавьте удобрение с фосфором (P), используйте монофосфат",
+                False: "разбавьте раствор водой, уменьшите внесение фосфора"
+            },
+            'potassium': {
+                True: "добавьте удобрение с калием (K), сульфат калия",
+                False: "разбавьте раствор водой, уменьшите дозу калийных удобрений"
+            },
+            'calcium': {
+                True: "добавьте кальциевую селитру, скорректируйте Ca",
+                False: "разбавьте раствор водой, сократите источники кальция"
+            },
+            'magnesium': {
+                True: "добавьте сульфат магния (MgSO4), повышайте Mg постепенно",
+                False: "разбавьте раствор водой, уменьшите источники магния"
+            },
+            'iron': {
+                True: "добавьте хелат железа (Fe-EDDHA/Fe-DTPA) согласно инструкции",
+                False: "разбавьте раствор водой, временно прекратите внесение железа"
             }
         }
         
@@ -623,27 +760,38 @@ class InferenceEngine:
     
     def _calculate_optimal_parameters(
         self,
-        requirements: CropRequirements
+        stage_reqs: StageRequirements
     ) -> EnvironmentParameters:
         """
         Вычислить оптимальные (целевые) параметры среды
         
-        Берет центр оптимального диапазона для каждого параметра
+        Берет центр оптимального диапазона для каждого параметра на текущей стадии
         
         Args:
-            requirements: Требования культуры
+            stage_reqs: Требования культуры на конкретной стадии
             
         Returns:
             EnvironmentParameters: Оптимальные параметры
         """
-        return EnvironmentParameters(
-            temperature=(requirements.temperature.min_optimal + requirements.temperature.max_optimal) / 2,
-            humidity=(requirements.humidity.min_optimal + requirements.humidity.max_optimal) / 2,
-            ph=(requirements.ph.min_optimal + requirements.ph.max_optimal) / 2,
-            ec=(requirements.ec.min_optimal + requirements.ec.max_optimal) / 2,
-            light_intensity=(requirements.light_intensity.min_optimal + requirements.light_intensity.max_optimal) / 2,
-            light_hours=(requirements.light_hours.min_optimal + requirements.light_hours.max_optimal) / 2
+        air = AirParameters(
+            temperature=(stage_reqs.air.temperature.min_optimal + stage_reqs.air.temperature.max_optimal) / 2,
+            humidity=(stage_reqs.air.humidity.min_optimal + stage_reqs.air.humidity.max_optimal) / 2,
+            atmospheric_pressure=(stage_reqs.air.atmospheric_pressure.min_optimal + stage_reqs.air.atmospheric_pressure.max_optimal) / 2
         )
+        light = LightParameters(
+            wavelength=(stage_reqs.light.wavelength.min_optimal + stage_reqs.light.wavelength.max_optimal) / 2,
+            energy=(stage_reqs.light.energy.min_optimal + stage_reqs.light.energy.max_optimal) / 2,
+            hours=(stage_reqs.light.hours.min_optimal + stage_reqs.light.hours.max_optimal) / 2
+        )
+        solution = SolutionParameters(
+            nitrogen=(stage_reqs.solution.nitrogen.min_optimal + stage_reqs.solution.nitrogen.max_optimal) / 2,
+            phosphorus=(stage_reqs.solution.phosphorus.min_optimal + stage_reqs.solution.phosphorus.max_optimal) / 2,
+            potassium=(stage_reqs.solution.potassium.min_optimal + stage_reqs.solution.potassium.max_optimal) / 2,
+            calcium=(stage_reqs.solution.calcium.min_optimal + stage_reqs.solution.calcium.max_optimal) / 2,
+            magnesium=(stage_reqs.solution.magnesium.min_optimal + stage_reqs.solution.magnesium.max_optimal) / 2,
+            iron=(stage_reqs.solution.iron.min_optimal + stage_reqs.solution.iron.max_optimal) / 2
+        )
+        return EnvironmentParameters(air=air, light=light, solution=solution)
     
     def _sigmoid(self, x: float, midpoint: float = 0.5, steepness: float = 10) -> float:
         """
@@ -665,3 +813,24 @@ class InferenceEngine:
         except OverflowError:
             # Обработка переполнения при очень больших/маленьких значениях
             return 0.0 if x < midpoint else 1.0
+
+    def _sigmoid01(self, x: float, midpoint: float = 0.5, steepness: float = 10) -> float:
+        """
+        Нормализованная сигмоида на отрезке [0,1].
+        В отличие от _sigmoid гарантирует значения s(0)=0 и s(1)=1,
+        что важно для корректной интерпретации идеальных условий.
+        """
+        # Базовое значение
+        y = self._sigmoid(x, midpoint, steepness)
+        y0 = self._sigmoid(0.0, midpoint, steepness)
+        y1 = self._sigmoid(1.0, midpoint, steepness)
+        # Избежать деления на ноль, если параметры подобраны неудачно
+        if abs(y1 - y0) < 1e-9:
+            return max(0.0, min(1.0, y))
+        norm = (y - y0) / (y1 - y0)
+        # Численная стабильность
+        if norm < 0.0:
+            return 0.0
+        if norm > 1.0:
+            return 1.0
+        return norm

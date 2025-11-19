@@ -1,0 +1,182 @@
+@startuml
+
+
+class BookModel {
+  +str title
+  +str author
+  +str genre
+  +str subgenre
+}
+
+class Question {
+  +int level
+  +str text
+  +List[str] options
+}
+
+class BayesianProbabilityModel {
+  +List[Dict[str, str]] books
+  +Dict[str, List[str]] genre_hierarchy
+  +List[Dict[str, Any]] questions_level_1
+  +List[Dict[str, Any]] questions_level_2
+  +List[Dict[str, Any]] questions_level_3
+  +Dict[str, Dict[str, float]] pr_answer_to_genre
+  +Dict[str, Dict[str, float]] pr_answer_to_subgenre
+  +Dict[str, Dict[str, float]] pr_answer_to_book
+  +List[str] user_answers
+  +List[int] user_answer_levels
+  +List[str] genres
+  +List[str] subgenres
+  +List[str] book_titles
+  +List~BookModel~ book_models
+  +Dict[str, BookModel] title_to_book
+  +pd.Series prior_genre
+  +pd.Series prior_subgenre
+  +pd.Series prior_book
+  +pd.DataFrame genre_likelihoods
+  +pd.DataFrame subgenre_likelihoods
+  +pd.DataFrame book_likelihoods
+  +Dict[str, pd.Series] _genre_col_cache
+  +Dict[str, pd.Series] _subgenre_col_cache
+  +Dict[str, pd.Series] _book_col_cache
+  +Dict[int, Dict[str, float]] level_weights
+  +float smoothing_tau
+
+  +BayesianProbabilityModel(enable_logging: bool=True)
+  +initialize_priors() void
+  +update_with_answer(answer: str) void
+  +update_with_answer_weighted(answer: str, level: int) void
+  +calculate_posterior_probabilities() Tuple[pd.Series, pd.Series, pd.Series]
+  +get_book_by_title(title: str) BookModel|None
+  +get_book_details_map() Dict[str, Dict[str, str]]
+  +load_from_json(path: str) None
+  +load_books_from_csv(path: str) None
+
+  -_rebuild_indexes_and_priors() void
+  -_build_likelihood_matrices(epsilon: float=1e-9) void
+  -_normalize_series(s: pd.Series) pd.Series
+  -_bayes_update(prior: pd.Series, likelihoods: pd.DataFrame, answer: str) pd.Series
+  -_bayes_update_weighted(prior: pd.Series, likelihoods: pd.DataFrame, answer: str, alpha: float) pd.Series
+  -_induce_subgenre_like(answer: str, index) pd.Series
+  -_induce_book_like(answer: str, index) pd.Series
+  -_rebuild_state_after_data_change(reset_user: bool=True) void
+  -_setup_logging() void
+}
+
+
+class ProbabilityTableView {
+  +ttk.Labelframe frame
+  +ttk.Treeview table
+  -_dblclick_callback: Callable|None
+
+  +ProbabilityTableView(parent, title: str, first_col_title: str, first_width: int=160)
+  +pack(**kwargs) void
+  +clear() void
+  +update_data(series) void
+  +bind_on_double_click(callback: Callable) void
+  -_on_dbl_click() void
+  +get_selected_name() str|None
+}
+
+class QuestionView {
+  +ttk.Frame frame
+  +ttk.Frame question_area
+  +ttk.Frame answers_area
+  +ttk.Frame nav_area
+  -tk.StringVar _answer_var
+
+  +QuestionView(parent)
+  +pack(**kwargs) void
+  +render_question(text: str, options: List[str], on_next: Callable[[str], None], on_skip: Callable[[], None]|None) void
+  -_ensure_areas() void
+  -_widget_exists(widget) bool
+}
+
+class MainView {
+  +tk.Tk root
+  +QuestionView question_view
+  +ProbabilityTableView genre_table
+  +ProbabilityTableView subgenre_table
+  +ProbabilityTableView book_table
+
+  +MainView(root: tk.Tk|None=None)
+  +hide_all_tables() void
+  +show_genre_table() void
+  +show_subgenre_table() void
+  +show_book_table() void
+  +get_selected_book() str|None
+  +set_menu_handlers(on_open_json: Callable, on_open_csv: Callable, on_exit: Callable) void
+  +update_progress(done: int, total: int) void
+  +update_genre(series) void
+  +update_subgenre(series) void
+  +update_book(series) void
+  +render_final(top_books_series, book_details: Dict|None=None) void
+}
+
+class Tooltip {
+  +Tooltip(widget, text: str, delay_ms: int=400)
+  -_on_enter(_=None) void
+  -_on_leave(_=None) void
+  -_unschedule() void
+  -_show() void
+  -_hide() void
+}
+
+class AppController {
+  +BayesianProbabilityModel model
+  +MainView view
+  -int l1_index
+  -int l2_index
+  -int l3_index
+  -int answered_count
+  -str|None _chosen_book
+
+  +AppController(model: BayesianProbabilityModel, view: MainView)
+  -_on_open_json() void
+  -_on_open_csv() void
+  -_on_exit() void
+  -_render_current_level1_question() void
+  -_on_level1_next(answer: str) void
+  -_on_level1_skip() void
+  -_render_current_level2_question() void
+  -_on_level2_next(answer: str) void
+  -_on_level2_skip() void
+  -_render_current_level3_question() void
+  -_on_level3_next(answer: str) void
+  -_on_level3_skip() void
+  -_render_final_screen() void
+  -_reset_and_restart() void
+  -_on_select_book(title: str) void
+  -_on_choose_button() void
+  -_refresh_tables(genre_only: bool=False) void
+  -_update_progress() void
+}
+
+class BookRecommender {
+  +BayesianProbabilityModel model
+  +tk.Tk|None root
+  +MainView|None view
+  +AppController|None controller
+
+  +BookRecommender(root: tk.Tk|None=None, build_gui: bool=True)
+  +update_with_answer(answer: str) void
+  +calculate_posterior_probabilities() Tuple[pd.Series, pd.Series, pd.Series]
+  +initialize_priors() void
+  +load_from_json(path: str) None
+  +load_books_from_csv(path: str) None
+  +__getattr__(name: str) Any
+}
+
+
+AppController --> BayesianProbabilityModel : uses
+AppController --> MainView : uses
+MainView *-- QuestionView : composition
+MainView *-- ProbabilityTableView : composition
+MainView o-- ProbabilityTableView : genre_table, subgenre_table, book_table
+ProbabilityTableView ..> Tooltip : dependency
+BookRecommender *-- BayesianProbabilityModel : composition
+BookRecommender o-- MainView : optional
+BookRecommender o-- AppController : optional
+BayesianProbabilityModel o-- BookModel : aggregation
+BayesianProbabilityModel ..> Question : data structure
+@enduml

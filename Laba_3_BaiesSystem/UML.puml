@@ -30,15 +30,20 @@ class BayesianProbabilityModel {
   +List[str] book_titles
   +List~BookModel~ book_models
   +Dict[str, BookModel] title_to_book
+  +Dict[str, List[str]] genre_to_books
+  +Dict[str, List[str]] subgenre_to_books
   +pd.Series prior_genre
   +pd.Series prior_subgenre
   +pd.Series prior_book
+  +pd.Series prior_genre_initial
+  +pd.Series prior_subgenre_initial
+  +pd.Series prior_book_initial
   +pd.DataFrame genre_likelihoods
   +pd.DataFrame subgenre_likelihoods
   +pd.DataFrame book_likelihoods
-  +Dict[str, pd.Series] _genre_col_cache
-  +Dict[str, pd.Series] _subgenre_col_cache
-  +Dict[str, pd.Series] _book_col_cache
+  -Dict[str, pd.Series] _genre_col_cache
+  -Dict[str, pd.Series] _subgenre_col_cache
+  -Dict[str, pd.Series] _book_col_cache
   +Dict[int, Dict[str, float]] level_weights
   +float smoothing_tau
 
@@ -54,11 +59,11 @@ class BayesianProbabilityModel {
 
   -_rebuild_indexes_and_priors() void
   -_build_likelihood_matrices(epsilon: float=1e-9) void
-  -_normalize_series(s: pd.Series) pd.Series
+  {static} -_normalize_series(s: pd.Series) pd.Series
   -_bayes_update(prior: pd.Series, likelihoods: pd.DataFrame, answer: str) pd.Series
   -_bayes_update_weighted(prior: pd.Series, likelihoods: pd.DataFrame, answer: str, alpha: float) pd.Series
-  -_induce_subgenre_like(answer: str, index) pd.Series
-  -_induce_book_like(answer: str, index) pd.Series
+  -_induce_subgenre_like(answer: str, index) Optional~pd.Series~
+  -_induce_book_like(answer: str, index) Optional~pd.Series~
   -_rebuild_state_after_data_change(reset_user: bool=True) void
   -_setup_logging() void
 }

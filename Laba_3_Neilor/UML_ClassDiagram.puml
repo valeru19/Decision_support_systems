@@ -1,0 +1,168 @@
+@startuml Laba_3_Neilor_ClassDiagram
+title Медицинская диагностическая система (ЛР 3, версия Neilor) — UML диаграмма классов
+
+' Визуальные настройки для читабельности
+skinparam backgroundColor #ffffff
+skinparam classBackgroundColor #F9FBFF
+skinparam classBorderColor #2F5597
+skinparam classArrowColor #2F5597
+skinparam shadowing false
+skinparam handwritten false
+skinparam ArrowThickness 1.2
+skinparam ArrowColor #2F5597
+skinparam linetype ortho
+skinparam classFontSize 14
+skinparam packageTitleFontSize 16
+skinparam packageBackgroundColor #EEF3FF
+skinparam roundcorner 8
+
+legend right
+  Диаграмма отражает ключевые классы лабораторной «Laba_3_Neilor»,
+  их публичные методы и основные поля, а также связи:
+  • ромб (композиция) — жизненный цикл подчинённого объекта управляется владельцем
+  • пустой ромб (агрегация) — логическая часть целого без жёсткой зависимости
+  • пунктирная стрелка — зависимость/использование
+endlegend
+
+package "Laba_3_Neilor" {
+
+  class MedicalDiagnosticGUI {
+    - root: tk.Tk
+    - question_panel: ttk.LabelFrame
+    - answer_frame: ttk.Frame
+    - history_text: scrolledtext.ScrolledText
+    - current_question_data: Dict
+    - diagnostic_engine: DiagnosticEngine
+    - results_logger: ResultsLogger
+    - probability_visualizer: ProbabilityVisualizer
+    --
+    + __init__()
+    + setup_gui()
+    + setup_styles()
+    + create_widgets()
+    + setup_answer_widgets(question_type: str, options: Dict = None)
+    + start_new_diagnosis()
+    + ask_next_question()
+    + process_answer()
+    + skip_question()
+    + add_to_history(text: str)
+    + update_visualization()
+    + update_status()
+    + update_disease_info()
+    + show_diagnosis_results()
+    + save_results()
+    + save_results_from_window(window)
+    + show_history()
+    + show_help()
+    + run()
+  }
+
+  class DiagnosticEngine {
+    - diseases: List[str]
+    - healthy_label: str = "Здоров"
+    - disease_probabilities: Dict[str, float]
+    - question_manager: QuestionManager
+    - upper_threshold: float
+    - lower_threshold: float
+    - min_questions: int
+    - max_questions: int
+    - extend_step: int
+    - hard_cap: int
+    - negative_streak: int
+    - negative_count: int
+    - total_answers: int
+    - last_top_prob: float
+    - diagnosis_history: List
+    --
+    + __init__()
+    + initialize_probabilities()
+    + confidence_to_probability(confidence: float, question_type: str = "confidence"): float
+    + update_probabilities_correctly(symptom: str, user_response: float, question_type: str = "confidence"): Dict[str, float]
+    + update_with_response(symptom: str, user_response: float, question_type: str = "confidence")
+    + get_active_diseases(): List[str]
+    + get_accepted_diagnosis(): Tuple[str, float]
+    + is_diagnosis_complete(): bool
+    + get_next_question(): Tuple[str, Dict]
+    + get_diagnosis_summary(): str
+    + get_diagnosis_confidence(): float
+    + reset()
+  }
+
+  class QuestionManager {
+    + __init__()
+    + calculate_question_value(symptom: str, active_diseases: List[str], disease_probabilities: Dict[str, float])
+    + get_next_question_strategically(active_diseases: List[str], disease_probabilities: Dict[str, float], questions_asked: int)
+    + record_response(symptom: str, user_response: float, question_type: str = "confidence")
+    + get_response_summary()
+    + reset()
+  }
+
+  class ProbabilityVisualizer {
+    - parent_frame
+    - fig
+    - ax
+    - canvas
+    --
+    + __init__(parent_frame)
+    + setup_visualization()
+    + update_probabilities(probabilities: Dict[str, float], accepted_diagnosis: str = None)
+  }
+
+  class ResultsLogger {
+    - log_dir: str
+    --
+    + __init__(log_dir: str = "diagnosis_logs")
+    + log_diagnosis(diagnosis_data: Dict): str
+    + load_recent_logs(count: int = 10): List[Dict]
+  }
+
+  class Main <<utility>> {
+    + main()
+  }
+
+  class disease_database <<module>> {
+    {static} DISEASES_DATABASE: Dict
+    {static} SYMPTOM_QUESTIONS: Dict
+    --
+    + get_all_symptoms(): List[str]
+    + get_disease_symptoms(disease_name)
+    + get_symptom_weight(disease_name, symptom_name)
+    + get_symptom_specificity(disease_name, symptom_name)
+  }
+}
+
+' Связи между классами
+MedicalDiagnosticGUI *-- DiagnosticEngine : композиция
+MedicalDiagnosticGUI *-- ProbabilityVisualizer : композиция
+MedicalDiagnosticGUI *-- ResultsLogger : композиция
+DiagnosticEngine *-- QuestionManager : композиция
+
+DiagnosticEngine ..> disease_database : использует
+MedicalDiagnosticGUI ..> disease_database : использует (вопросы/описания)
+
+Main ..> MedicalDiagnosticGUI : создаёт и запускает
+
+note right of DiagnosticEngine
+  Ядро системы: байесовское обновление вероятностей
+  с использованием P(S|D) и P(¬S|D) для положительных
+  и отрицательных свидетельств. Управляет порогами
+  принятия/отклонения гипотез и лимитами вопросов.
+end note
+
+note bottom of ProbabilityVisualizer
+  Встраиваемая визуализация (matplotlib) внутри Tkinter:
+  горизонтальная столбчатая диаграмма вероятностей,
+  отдельная гипотеза «Здоров» отображается наравне
+  с диагнозами, подсветка принятого диагноза.
+end note
+
+note left of MedicalDiagnosticGUI
+  Контролирует процесс диагностики:
+  • формирование вопросов
+  • приём ответов пользователя
+  • обновление вероятностей
+  • показ истории и результатов
+  • сохранение логов
+end note
+
+@enduml
